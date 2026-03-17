@@ -10,6 +10,40 @@ import streamlit as st
 
 st.set_page_config(page_title="BayesIQ Dashboard", layout="wide")
 
+
+def _fmt_period(series):
+    """Shorten period strings for compact x-axis labels."""
+    def _shorten(s):
+        # Weekly: "2025-12-01/2025-12-07" → "Dec 1"
+        if "/" in s:
+            s = s.split("/")[0]
+        # Monthly: "2025-12" → "Dec '25"
+        parts = s.split("-")
+        if len(parts) >= 2:
+            import calendar
+            try:
+                mon = calendar.month_abbr[int(parts[1])]
+                if len(parts) == 2:
+                    return f"{mon} '{parts[0][2:]}"
+                return f"{mon} {int(parts[2])}"
+            except (ValueError, IndexError):
+                pass
+        return s
+    return series.map(_shorten)
+
+
+def _humanize_label(col_name):
+    """Convert snake_case column name to human-readable axis label."""
+    return col_name.replace("_", " ").title()
+
+
+def _polish_fig(fig, y_col, show_legend=True):
+    """Apply consistent axis and legend polish to a Plotly figure."""
+    fig.update_yaxes(title_text=_humanize_label(y_col))
+    fig.update_xaxes(title_text="", tickangle=-30)
+    if not show_legend:
+        fig.update_layout(showlegend=False)
+
 @st.cache_data
 def load_data(path):
     """Load and clean the dataset from a file path."""
@@ -290,11 +324,12 @@ def main():
 
         _compact = dict(height=260, margin=dict(l=40, r=20, t=40, b=30),
                         title_font_size=13,
-                        legend=dict(orientation="h", y=-0.25, font=dict(size=12)))
+                        legend=dict(orientation="h", y=-0.25, font=dict(size=10)))
 
         _dim_options = ["Topline", "plan_tier", "acquisition_channel", "region", "product_line"]
         _sel_dim = st.radio("Dimension", _dim_options, index=0, horizontal=True, key="dim_radio")
         _dim_col = None if _sel_dim == "Topline" else _sel_dim
+        _legend_shown = False
 
         # --- Row 1 ---
         r1c1, r1c2, r1c3 = st.columns(3)
@@ -307,24 +342,27 @@ def main():
                 den_dim = den_df.groupby([den_df["timestamp"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 ratio_dim = (num_dim / den_dim).stack().reset_index()
                 ratio_dim.columns = ["period", _dim_col, "churn_rate"]
-                ratio_dim["period"] = ratio_dim["period"].astype(str)
+                ratio_dim["period"] = _fmt_period(ratio_dim["period"].astype(str))
                 if ratio_dim.empty:
                     st.info("No data for Churn Rate.")
                 else:
                     fig = px.line(ratio_dim, x="period", y="churn_rate", color=_dim_col, title="Churn Rate (%)", markers=True)
                     fig.update_layout(**_compact)
+                    _polish_fig(fig, "churn_rate", show_legend=not _legend_shown)
+                    _legend_shown = True
                     st.plotly_chart(fig, use_container_width=True)
             else:
                 den_grouped = den_df.groupby(den_df["timestamp"].dt.to_period(_period)).size()
                 num_grouped = num_df.groupby(num_df["timestamp"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
                 ratio_df = (num_grouped / den_grouped).fillna(0).reset_index()
                 ratio_df.columns = ["period", "churn_rate"]
-                ratio_df["period"] = ratio_df["period"].astype(str)
+                ratio_df["period"] = _fmt_period(ratio_df["period"].astype(str))
                 if ratio_df.empty:
                     st.info("No data for Churn Rate.")
                 else:
                     fig = px.line(ratio_df, x="period", y="churn_rate", title="Churn Rate (%)", markers=True)
                     fig.update_layout(**_compact)
+                    _polish_fig(fig, "churn_rate")
                     st.plotly_chart(fig, use_container_width=True)
 
         with r1c2:
@@ -335,14 +373,16 @@ def main():
                 if _dim_col and _dim_col in metric_df.columns:
                     grouped = metric_df.groupby([metric_df["timestamp"].dt.to_period(_period), _dim_col])["current_mrr"].sum().reset_index()
                     grouped.columns = ["period", _dim_col, "mrr"]
-                    grouped["period"] = grouped["period"].astype(str)
+                    grouped["period"] = _fmt_period(grouped["period"].astype(str))
                     fig = px.bar(grouped, x="period", y="mrr", color=_dim_col, title="MRR ($)", barmode="group")
                 else:
                     grouped = metric_df.groupby(metric_df["timestamp"].dt.to_period(_period))["current_mrr"].sum().reset_index()
                     grouped.columns = ["period", "mrr"]
-                    grouped["period"] = grouped["period"].astype(str)
+                    grouped["period"] = _fmt_period(grouped["period"].astype(str))
                     fig = px.bar(grouped, x="period", y="mrr", title="MRR ($)")
                 fig.update_layout(**_compact)
+                _polish_fig(fig, "mrr", show_legend=not _legend_shown and _dim_col is not None)
+                if _dim_col: _legend_shown = True
                 st.plotly_chart(fig, use_container_width=True)
 
         with r1c3:
@@ -353,24 +393,27 @@ def main():
                 den_dim = den_df.groupby([den_df["timestamp"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 ratio_dim = (num_dim / den_dim).stack().reset_index()
                 ratio_dim.columns = ["period", _dim_col, "nrr"]
-                ratio_dim["period"] = ratio_dim["period"].astype(str)
+                ratio_dim["period"] = _fmt_period(ratio_dim["period"].astype(str))
                 if ratio_dim.empty:
                     st.info("No data for NRR.")
                 else:
                     fig = px.line(ratio_dim, x="period", y="nrr", color=_dim_col, title="NRR (%)", markers=True)
                     fig.update_layout(**_compact)
+                    _polish_fig(fig, "nrr", show_legend=not _legend_shown)
+                    _legend_shown = True
                     st.plotly_chart(fig, use_container_width=True)
             else:
                 den_grouped = den_df.groupby(den_df["timestamp"].dt.to_period(_period)).size()
                 num_grouped = num_df.groupby(num_df["timestamp"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
                 ratio_df = (num_grouped / den_grouped).fillna(0).reset_index()
                 ratio_df.columns = ["period", "nrr"]
-                ratio_df["period"] = ratio_df["period"].astype(str)
+                ratio_df["period"] = _fmt_period(ratio_df["period"].astype(str))
                 if ratio_df.empty:
                     st.info("No data for NRR.")
                 else:
                     fig = px.line(ratio_df, x="period", y="nrr", title="NRR (%)", markers=True)
                     fig.update_layout(**_compact)
+                    _polish_fig(fig, "nrr")
                     st.plotly_chart(fig, use_container_width=True)
 
         # --- Row 2 ---
@@ -381,14 +424,16 @@ def main():
             if _dim_col and _dim_col in metric_df.columns:
                 grouped = metric_df.groupby([metric_df["timestamp"].dt.to_period(_period), _dim_col]).size().reset_index()
                 grouped.columns = ["period", _dim_col, "active_users"]
-                grouped["period"] = grouped["period"].astype(str)
+                grouped["period"] = _fmt_period(grouped["period"].astype(str))
                 fig = px.bar(grouped, x="period", y="active_users", color=_dim_col, title="Active Users", barmode="group")
             else:
                 grouped = metric_df.groupby(metric_df["timestamp"].dt.to_period(_period)).size().reset_index()
                 grouped.columns = ["period", "active_users"]
-                grouped["period"] = grouped["period"].astype(str)
+                grouped["period"] = _fmt_period(grouped["period"].astype(str))
                 fig = px.bar(grouped, x="period", y="active_users", title="Active Users")
             fig.update_layout(**_compact)
+            _polish_fig(fig, "active_users", show_legend=not _legend_shown and _dim_col is not None)
+            if _dim_col: _legend_shown = True
             st.plotly_chart(fig, use_container_width=True)
 
         with r2c2:
@@ -399,26 +444,28 @@ def main():
                 if _dim_col and _dim_col in metric_df.columns:
                     grouped = metric_df.groupby([metric_df["timestamp"].dt.to_period(_period), _dim_col])["expansion_amount"].sum().reset_index()
                     grouped.columns = ["period", _dim_col, "expansion_revenue"]
-                    grouped["period"] = grouped["period"].astype(str)
+                    grouped["period"] = _fmt_period(grouped["period"].astype(str))
                     fig = px.bar(grouped, x="period", y="expansion_revenue", color=_dim_col, title="Expansion Revenue ($)", barmode="group")
                 else:
                     grouped = metric_df.groupby(metric_df["timestamp"].dt.to_period(_period))["expansion_amount"].sum().reset_index()
                     grouped.columns = ["period", "expansion_revenue"]
-                    grouped["period"] = grouped["period"].astype(str)
+                    grouped["period"] = _fmt_period(grouped["period"].astype(str))
                     fig = px.bar(grouped, x="period", y="expansion_revenue", title="Expansion Revenue ($)")
                 fig.update_layout(**_compact)
+                _polish_fig(fig, "expansion_revenue", show_legend=not _legend_shown and _dim_col is not None)
+                if _dim_col: _legend_shown = True
                 st.plotly_chart(fig, use_container_width=True)
 
         with r2c3:
-            st.markdown("**KPI Summary**")
-            st.metric("Total Rows", f"{len(df):,}")
+            st.markdown("##### KPI Summary")
+            st.markdown(f"**Total Rows:** {len(df):,}")
             if "timestamp" in df.columns:
                 _min = df["timestamp"].min().strftime("%Y-%m-%d")
                 _max = df["timestamp"].max().strftime("%Y-%m-%d")
-                st.metric("Date Range", f"{_min} to {_max}")
+                st.markdown(f"**Date Range:** {_min} to {_max}")
             if "current_mrr" in df.columns:
                 _total_mrr = df["current_mrr"].sum()
-                st.metric("Total MRR", f"${_total_mrr:,.0f}")
+                st.markdown(f"**Total MRR:** ${_total_mrr:,.0f}")
 
     with tabs[1]:
         st.header("Data Quality Summary")
