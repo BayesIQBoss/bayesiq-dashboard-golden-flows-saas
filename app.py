@@ -288,166 +288,137 @@ def main():
     with tabs[0]:
         st.header("Business Metrics")
 
-        st.subheader("Churn Rate")
+        _compact = dict(height=260, margin=dict(l=40, r=20, t=40, b=30),
+                        title_font_size=13,
+                        legend=dict(orientation="h", y=-0.25, font=dict(size=12)))
 
-        _dim_options_churn_rate = ['event_name', 'plan_tier', 'region', 'acquisition_channel', 'account_segment', 'mrr', 'expansion_amount', 'churned_flag', 'active_flag', 'current_mrr', 'prior_mrr']
-        _sel_dim_churn_rate = st.selectbox(
-            "Break down by", ["(none)"] + _dim_options_churn_rate,
-            key="dim_picker_churn_rate")
+        _dim_options = ["Topline", "plan_tier", "acquisition_channel", "region", "product_line"]
+        _sel_dim = st.radio("Dimension", _dim_options, index=0, horizontal=True, key="dim_radio")
+        _dim_col = None if _sel_dim == "Topline" else _sel_dim
 
-        num_df = df[(df["churned_flag"] == 1)]
-        den_df = df[(df["active_flag"] == 1)]
-        den_grouped = den_df.groupby(den_df["timestamp"].dt.to_period(_period)).size()
-        num_grouped = num_df.groupby(num_df["timestamp"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
-        ratio_df = (num_grouped / den_grouped).fillna(0).reset_index()
-        ratio_df.columns = ["period", "churn_rate"]
-        ratio_df["period"] = ratio_df["period"].astype(str)
+        # --- Row 1 ---
+        r1c1, r1c2, r1c3 = st.columns(3)
 
-        if ratio_df.empty:
-            st.info("No data for Churn Rate in this period.")
-        else:
-            fig = px.line(ratio_df, x="period", y="churn_rate", title="Churn Rate Over Time", markers=True)
-            st.plotly_chart(fig, use_container_width=True)
-
-        if _sel_dim_churn_rate != "(none)":
-            _dim_col = _sel_dim_churn_rate
-            _dim_label = _dim_col.replace("_", " ").title()
-            if _dim_col in num_df.columns:
+        with r1c1:
+            num_df = df[(df["churned_flag"] == 1)]
+            den_df = df[(df["active_flag"] == 1)]
+            if _dim_col and _dim_col in num_df.columns:
                 num_dim = num_df.groupby([num_df["timestamp"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 den_dim = den_df.groupby([den_df["timestamp"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 ratio_dim = (num_dim / den_dim).stack().reset_index()
                 ratio_dim.columns = ["period", _dim_col, "churn_rate"]
                 ratio_dim["period"] = ratio_dim["period"].astype(str)
-                fig2 = px.line(ratio_dim, x="period", y="churn_rate", color=_dim_col, title=f"Churn Rate by {_dim_label}", markers=True)
-                st.plotly_chart(fig2, use_container_width=True)
+                if ratio_dim.empty:
+                    st.info("No data for Churn Rate.")
+                else:
+                    fig = px.line(ratio_dim, x="period", y="churn_rate", color=_dim_col, title="Churn Rate (%)", markers=True)
+                    fig.update_layout(**_compact)
+                    st.plotly_chart(fig, use_container_width=True)
+            else:
+                den_grouped = den_df.groupby(den_df["timestamp"].dt.to_period(_period)).size()
+                num_grouped = num_df.groupby(num_df["timestamp"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
+                ratio_df = (num_grouped / den_grouped).fillna(0).reset_index()
+                ratio_df.columns = ["period", "churn_rate"]
+                ratio_df["period"] = ratio_df["period"].astype(str)
+                if ratio_df.empty:
+                    st.info("No data for Churn Rate.")
+                else:
+                    fig = px.line(ratio_df, x="period", y="churn_rate", title="Churn Rate (%)", markers=True)
+                    fig.update_layout(**_compact)
+                    st.plotly_chart(fig, use_container_width=True)
 
-        st.divider()
+        with r1c2:
+            metric_df = df
+            if "current_mrr" not in metric_df.columns:
+                st.warning("Column \"current_mrr\" not found — skipping MRR.")
+            else:
+                if _dim_col and _dim_col in metric_df.columns:
+                    grouped = metric_df.groupby([metric_df["timestamp"].dt.to_period(_period), _dim_col])["current_mrr"].sum().reset_index()
+                    grouped.columns = ["period", _dim_col, "mrr"]
+                    grouped["period"] = grouped["period"].astype(str)
+                    fig = px.bar(grouped, x="period", y="mrr", color=_dim_col, title="MRR ($)", barmode="group")
+                else:
+                    grouped = metric_df.groupby(metric_df["timestamp"].dt.to_period(_period))["current_mrr"].sum().reset_index()
+                    grouped.columns = ["period", "mrr"]
+                    grouped["period"] = grouped["period"].astype(str)
+                    fig = px.bar(grouped, x="period", y="mrr", title="MRR ($)")
+                fig.update_layout(**_compact)
+                st.plotly_chart(fig, use_container_width=True)
 
-        st.subheader("Mrr")
-
-        _dim_options_mrr = ['event_name', 'plan_tier', 'region', 'acquisition_channel', 'account_segment', 'mrr', 'expansion_amount', 'churned_flag', 'active_flag', 'current_mrr', 'prior_mrr']
-        _sel_dim_mrr = st.selectbox(
-            "Break down by", ["(none)"] + _dim_options_mrr,
-            key="dim_picker_mrr")
-
-        metric_df = df
-        if "current_mrr" not in metric_df.columns:
-            st.warning("Column \"current_mrr\" not found in data — skipping Mrr.")
-        else:
-            grouped = metric_df.groupby(metric_df["timestamp"].dt.to_period(_period))["current_mrr"].sum().reset_index()
-            grouped.columns = ["period", "mrr"]
-            grouped["period"] = grouped["period"].astype(str)
-
-            fig = px.bar(grouped, x="period", y="mrr", title="Mrr Over Time")
-            st.plotly_chart(fig, use_container_width=True)
-
-            # Dimension breakdown
-        if _sel_dim_mrr != "(none)":
-            _dim_col = _sel_dim_mrr
-            _dim_label = _dim_col.replace("_", " ").title()
-            if _dim_col in metric_df.columns and "current_mrr" in metric_df.columns:
-                dim_grouped = metric_df.groupby([metric_df["timestamp"].dt.to_period(_period), _dim_col])["current_mrr"].sum().reset_index()
-                dim_grouped.columns = ["period", _dim_col, "mrr"]
-                dim_grouped["period"] = dim_grouped["period"].astype(str)
-                fig2 = px.bar(dim_grouped, x="period", y="mrr", color=_dim_col, title=f"Mrr by {_dim_label}", barmode="group")
-                st.plotly_chart(fig2, use_container_width=True)
-
-
-        st.divider()
-
-        st.subheader("Nrr")
-
-        _dim_options_nrr = ['event_name', 'plan_tier', 'region', 'acquisition_channel', 'account_segment', 'mrr', 'expansion_amount', 'churned_flag', 'active_flag', 'current_mrr', 'prior_mrr']
-        _sel_dim_nrr = st.selectbox(
-            "Break down by", ["(none)"] + _dim_options_nrr,
-            key="dim_picker_nrr")
-
-        num_df = df
-        den_df = df
-        den_grouped = den_df.groupby(den_df["timestamp"].dt.to_period(_period)).size()
-        num_grouped = num_df.groupby(num_df["timestamp"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
-        ratio_df = (num_grouped / den_grouped).fillna(0).reset_index()
-        ratio_df.columns = ["period", "nrr"]
-        ratio_df["period"] = ratio_df["period"].astype(str)
-
-        if ratio_df.empty:
-            st.info("No data for Nrr in this period.")
-        else:
-            fig = px.line(ratio_df, x="period", y="nrr", title="Nrr Over Time", markers=True)
-            st.plotly_chart(fig, use_container_width=True)
-
-        if _sel_dim_nrr != "(none)":
-            _dim_col = _sel_dim_nrr
-            _dim_label = _dim_col.replace("_", " ").title()
-            if _dim_col in num_df.columns:
+        with r1c3:
+            num_df = df
+            den_df = df
+            if _dim_col and _dim_col in num_df.columns:
                 num_dim = num_df.groupby([num_df["timestamp"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 den_dim = den_df.groupby([den_df["timestamp"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 ratio_dim = (num_dim / den_dim).stack().reset_index()
                 ratio_dim.columns = ["period", _dim_col, "nrr"]
                 ratio_dim["period"] = ratio_dim["period"].astype(str)
-                fig2 = px.line(ratio_dim, x="period", y="nrr", color=_dim_col, title=f"Nrr by {_dim_label}", markers=True)
-                st.plotly_chart(fig2, use_container_width=True)
+                if ratio_dim.empty:
+                    st.info("No data for NRR.")
+                else:
+                    fig = px.line(ratio_dim, x="period", y="nrr", color=_dim_col, title="NRR (%)", markers=True)
+                    fig.update_layout(**_compact)
+                    st.plotly_chart(fig, use_container_width=True)
+            else:
+                den_grouped = den_df.groupby(den_df["timestamp"].dt.to_period(_period)).size()
+                num_grouped = num_df.groupby(num_df["timestamp"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
+                ratio_df = (num_grouped / den_grouped).fillna(0).reset_index()
+                ratio_df.columns = ["period", "nrr"]
+                ratio_df["period"] = ratio_df["period"].astype(str)
+                if ratio_df.empty:
+                    st.info("No data for NRR.")
+                else:
+                    fig = px.line(ratio_df, x="period", y="nrr", title="NRR (%)", markers=True)
+                    fig.update_layout(**_compact)
+                    st.plotly_chart(fig, use_container_width=True)
 
-        st.divider()
+        # --- Row 2 ---
+        r2c1, r2c2, r2c3 = st.columns(3)
 
-        st.subheader("Active Users")
-
-        _dim_options_active_users = ['event_name', 'plan_tier', 'region', 'acquisition_channel', 'account_segment', 'mrr', 'expansion_amount', 'churned_flag', 'active_flag', 'current_mrr', 'prior_mrr']
-        _sel_dim_active_users = st.selectbox(
-            "Break down by", ["(none)"] + _dim_options_active_users,
-            key="dim_picker_active_users")
-
-        metric_df = df
-        grouped = metric_df.groupby(metric_df["timestamp"].dt.to_period(_period)).size().reset_index()
-        grouped.columns = ["period", "active_users"]
-        grouped["period"] = grouped["period"].astype(str)
-
-        fig = px.bar(grouped, x="period", y="active_users", title="Active Users Over Time")
-        st.plotly_chart(fig, use_container_width=True)
-
-        if _sel_dim_active_users != "(none)":
-            _dim_col = _sel_dim_active_users
-            _dim_label = _dim_col.replace("_", " ").title()
-            if _dim_col in metric_df.columns:
-                dim_grouped = metric_df.groupby([metric_df["timestamp"].dt.to_period(_period), _dim_col]).size().reset_index()
-                dim_grouped.columns = ["period", _dim_col, "active_users"]
-                dim_grouped["period"] = dim_grouped["period"].astype(str)
-                fig2 = px.bar(dim_grouped, x="period", y="active_users", color=_dim_col, title=f"Active Users by {_dim_label}", barmode="group")
-                st.plotly_chart(fig2, use_container_width=True)
-
-        st.divider()
-
-        st.subheader("Expansion Revenue")
-
-        _dim_options_expansion_revenue = ['event_name', 'plan_tier', 'region', 'acquisition_channel', 'account_segment', 'mrr', 'expansion_amount', 'churned_flag', 'active_flag', 'current_mrr', 'prior_mrr']
-        _sel_dim_expansion_revenue = st.selectbox(
-            "Break down by", ["(none)"] + _dim_options_expansion_revenue,
-            key="dim_picker_expansion_revenue")
-
-        metric_df = df
-        if "expansion_amount" not in metric_df.columns:
-            st.warning("Column \"expansion_amount\" not found in data — skipping Expansion Revenue.")
-        else:
-            grouped = metric_df.groupby(metric_df["timestamp"].dt.to_period(_period))["expansion_amount"].sum().reset_index()
-            grouped.columns = ["period", "expansion_revenue"]
-            grouped["period"] = grouped["period"].astype(str)
-
-            fig = px.bar(grouped, x="period", y="expansion_revenue", title="Expansion Revenue Over Time")
+        with r2c1:
+            metric_df = df
+            if _dim_col and _dim_col in metric_df.columns:
+                grouped = metric_df.groupby([metric_df["timestamp"].dt.to_period(_period), _dim_col]).size().reset_index()
+                grouped.columns = ["period", _dim_col, "active_users"]
+                grouped["period"] = grouped["period"].astype(str)
+                fig = px.bar(grouped, x="period", y="active_users", color=_dim_col, title="Active Users", barmode="group")
+            else:
+                grouped = metric_df.groupby(metric_df["timestamp"].dt.to_period(_period)).size().reset_index()
+                grouped.columns = ["period", "active_users"]
+                grouped["period"] = grouped["period"].astype(str)
+                fig = px.bar(grouped, x="period", y="active_users", title="Active Users")
+            fig.update_layout(**_compact)
             st.plotly_chart(fig, use_container_width=True)
 
-            # Dimension breakdown
-        if _sel_dim_expansion_revenue != "(none)":
-            _dim_col = _sel_dim_expansion_revenue
-            _dim_label = _dim_col.replace("_", " ").title()
-            if _dim_col in metric_df.columns and "expansion_amount" in metric_df.columns:
-                dim_grouped = metric_df.groupby([metric_df["timestamp"].dt.to_period(_period), _dim_col])["expansion_amount"].sum().reset_index()
-                dim_grouped.columns = ["period", _dim_col, "expansion_revenue"]
-                dim_grouped["period"] = dim_grouped["period"].astype(str)
-                fig2 = px.bar(dim_grouped, x="period", y="expansion_revenue", color=_dim_col, title=f"Expansion Revenue by {_dim_label}", barmode="group")
-                st.plotly_chart(fig2, use_container_width=True)
+        with r2c2:
+            metric_df = df
+            if "expansion_amount" not in metric_df.columns:
+                st.warning("Column \"expansion_amount\" not found — skipping Expansion Revenue.")
+            else:
+                if _dim_col and _dim_col in metric_df.columns:
+                    grouped = metric_df.groupby([metric_df["timestamp"].dt.to_period(_period), _dim_col])["expansion_amount"].sum().reset_index()
+                    grouped.columns = ["period", _dim_col, "expansion_revenue"]
+                    grouped["period"] = grouped["period"].astype(str)
+                    fig = px.bar(grouped, x="period", y="expansion_revenue", color=_dim_col, title="Expansion Revenue ($)", barmode="group")
+                else:
+                    grouped = metric_df.groupby(metric_df["timestamp"].dt.to_period(_period))["expansion_amount"].sum().reset_index()
+                    grouped.columns = ["period", "expansion_revenue"]
+                    grouped["period"] = grouped["period"].astype(str)
+                    fig = px.bar(grouped, x="period", y="expansion_revenue", title="Expansion Revenue ($)")
+                fig.update_layout(**_compact)
+                st.plotly_chart(fig, use_container_width=True)
 
-
-        st.divider()
+        with r2c3:
+            st.markdown("**KPI Summary**")
+            st.metric("Total Rows", f"{len(df):,}")
+            if "timestamp" in df.columns:
+                _min = df["timestamp"].min().strftime("%Y-%m-%d")
+                _max = df["timestamp"].max().strftime("%Y-%m-%d")
+                st.metric("Date Range", f"{_min} to {_max}")
+            if "current_mrr" in df.columns:
+                _total_mrr = df["current_mrr"].sum()
+                st.metric("Total MRR", f"${_total_mrr:,.0f}")
 
     with tabs[1]:
         st.header("Data Quality Summary")
