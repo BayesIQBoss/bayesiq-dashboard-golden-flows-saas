@@ -1,0 +1,14 @@
+name: Keep Alive
+on:
+  schedule:
+    - cron: '*/25 * * * *'
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake Streamlit app
+        run: |
+          curl -sL -b /tmp/c -c /tmp/c -o /dev/null -w "HTTP %{http_code}\n" \
+            --max-time 30 \
+            "https://bayesiq-dashboard-golden-flows-saas.streamlit.app"
