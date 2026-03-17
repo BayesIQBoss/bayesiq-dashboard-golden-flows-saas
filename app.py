@@ -326,7 +326,7 @@ def main():
                         title_font_size=13,
                         legend=dict(orientation="h", y=-0.25, font=dict(size=10)))
 
-        _dim_options = ["Topline", "plan_tier", "acquisition_channel", "region", "product_line"]
+        _dim_options = ["Topline", "plan_tier", "acquisition_channel", "region", "account_segment"]
         _sel_dim = st.radio("Dimension", _dim_options, index=0, horizontal=True, key="dim_radio")
         _dim_col = None if _sel_dim == "Topline" else _sel_dim
         _legend_shown = False
